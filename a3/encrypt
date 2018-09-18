@@ -1,0 +1,49 @@
+#!/usr/bin/env python
+
+import base64
+import sys
+import requests
+
+# a cookie argument is required.
+if len(sys.argv) != 2:
+	sys.stderr.write("Wrong number of arguments\n")
+	sys.exit(1)
+
+plaintext = bytearray(sys.argv[1])
+padzero_num = 0
+plaintext.append(1)
+if len(plaintext) % 16 == 0:
+	padzero_num = 15
+else:
+	padzero_num = 16 - (len(plaintext) % 16) - 1
+for i in range(0,padzero_num):
+	plaintext.append(0)
+
+ciphertext = bytearray()
+fakeIV = bytearray(16)
+
+for block in reversed(range(0,len(plaintext)/16-1)):
+	plainblock = plaintext[block*16:block*16+16]
+	imValue = bytearray(16)
+	cValue = bytearray(16)
+	for i in range(0,16):
+		t = 15 - i
+		# accumulatively XOR 1 
+		for j in range(t+1, 16):
+			fakeIV[j] = imValue[j]
+		# start form 0x00 to 0xff, make the plaintext (...,1,0,...0) so that it will give a special error response
+		for j in range(0,256):
+			fakeIV[t] = j
+			cookie = base64.b64encode(fakeIV + plainblock)
+			response = requests.get("http://localhost:4555", cookies={'user': cookie})
+			# if returns a 200, we got the immediatary value XOR 1
+			if response.status_code == 200:
+				imValue[t] = fakeIV[t] ^ 1
+				# immediatary value XOR ciphertext gives the plaintext
+				cValue[t] = imValue[t] ^ plaintext[(block-1)*16+t]
+				break
+	ciphertext.extend(cValue)
+final = fakeIV
+final.extend(ciphertext)
+print(base64.b64encode(final))
+
